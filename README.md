@@ -1,9 +1,9 @@
 # ocamlinit
 
-The `ocamlinit` tool shows dependencies between OCaml modules.
+The `ocamlinit` tool shows dependencies between OCaml modules for ocamlinit format.
 (not tested on non \*nix environments).
 
-## Require
+## Requires
 
 - OCaml >= 4,
 - and ocamldep
@@ -50,7 +50,7 @@ Consider the following dependencies.
 A
 ├── B
 │   └── C
-└── D ─└─ E
+└── D ──└─ E
 ```
 Then the command works as:
 ```
@@ -81,7 +81,7 @@ $ ocamlinit -mod-ml -beta E.ml
 #mod_use "E.ml"
 ```
 
-### using -beta option
+### Using -beta option
 If your OCaml interpreter is old and an error occurs while reading
 your .ocamlinit, like:
 ```
