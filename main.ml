@@ -6,7 +6,7 @@ let usage =
 
 Usage: ocamlinit [options] [files]
 
-Example: ocamlinit -I _build -all -mod-ml main.ml"
+Example: ocamlinit -I _build -beta -mod-ml main.ml"
 
 let command = "ocamldep -one-line -pp camlp4of "
 let remove_suffix s = String.sub s 0 (String.length s - 3)
@@ -40,55 +40,72 @@ let run line =
 (* ------------------------------------- *)
 (** Algorithm **)
 (* create dependency graph from ocamldep *)
+module Table = Map.Make(String)
+
 open List
 
 let concatMap f xs = concat (map f xs)
-
-let edges = ref []
-
-(* return list of (edge, accumulated vertex) *)
-let rec analys0 cmd ml =
-    if exists (fun (v,_) -> v = ml) !edges then
-      []
-    else
-      match run (sprintf "%s %s.ml" cmd ml) with
-      | []       -> []
-      | cmo :: _ ->
-        match Dep.from_line cmo with
-        | [] -> []
-        | es ->
-          edges := es @ !edges;
-          es @ concatMap (analys0 cmd) (map snd es)
-
-let analys cmd m =
-  let es = analys0 cmd m in
-  fold_left (fun xs (a,b) -> a::b::xs) [] es,
-  es
+let subset xs ys = for_all (fun x -> mem x ys) xs
 
 let rec uniq = function
   | []      -> []
   | x :: xs -> x :: filter (fun y -> y <> x) (uniq xs)
 
-let analyses cmd ms =
-  let gs = map (analys cmd) ms in
-  uniq (concatMap fst gs),
-  uniq (concatMap snd gs)
+(* return list of (vertex, vertex) *)
+let analyze0 cmd fs =
+  let mls = map (fun f -> f ^ ".ml") fs in
+  run (sprintf "%s %s" cmd (String.concat " " mls))
+  |> map Dep.from_line
+
+let update es table =
+  let maybe x o = match o with
+                    Some y -> Some y
+                  | None   -> Some (uniq x) in
+  fold_left
+    (fun t (k,deps) -> Table.update k (maybe deps) t)
+    table
+    es
+
+let rec analyze cmd fs table =
+  match filter
+    (fun f -> not (Table.mem f table))
+    fs
+  with
+    [] -> table
+  | unsolves ->
+    let es = analyze0 cmd unsolves in
+    let new_vertexes = uniq (concatMap snd es) in
+    analyze cmd new_vertexes (update es table)
+
+let analyzes cmd fs = analyze cmd fs Table.empty
 
 
 (* functions for Graph *)
 (* this program take number of any files, thus origin is not unique *)
 let origins vs es =
-  filter (fun v -> for_all (fun (_,u) -> v <> u) es) vs
-
-let parents v es  = map fst (filter (fun (_,v') -> v = v') es)
-let childlen v es = map snd (filter (fun (v',_) -> v = v') es)
+  let out_edges v es = filter (fun (u,_) -> v = u) es in
+  filter (fun v -> subset (out_edges v es) [v,v]) vs
 
 let lex_sort nfs = sort String.compare nfs
 
+let dig vs es =
+  let org = origins vs es in
+  let vs' = filter (fun v -> not (mem v org)) vs in
+  let es' = filter (fun (_,v) -> not (mem v org)) es in
+  org, vs', es'
+
 (* align verticals by depth first search and lexicographic sort *)
-let ordering (vs,es) =
-  let rec dig v = v :: concatMap dig (lex_sort (childlen v es)) in
-  concatMap (fun x -> rev (dig x)) (origins vs es)
+let rec ordering0 vs0 es0 =
+  match dig vs0 es0 with
+    vs,[],_   -> vs
+  | vs,vs',es -> lex_sort vs @ ordering0 vs' es
+
+let ordering table =
+  let vs = map fst (Table.bindings table) in
+  let es = concatMap (fun v ->
+                 map (fun v' -> v,v') (Table.find v table))
+               vs in
+  ordering0 vs es
 
 
 (* ---------------------------- *)
@@ -131,7 +148,7 @@ let put pre suff opt files =
   and fs = map remove_suffix files in
   (* solve dependency *)
   try
-    let dependency = uniq (ordering (analyses cmd fs)) in
+    let dependency = uniq (ordering (analyzes cmd fs)) in
     let printer s =
       let quote x = if !quotation then sprintf "%S" x else x in
       print_endline (pre ^ quote (s ^ suff))

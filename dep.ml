@@ -1,5 +1,9 @@
 open Genlex
 
+let rec uniq = function
+  | []      -> []
+  | x :: xs -> x :: List.filter (fun y -> y <> x) (uniq xs)
+
 (* supporting format (ocamldep -one-line file.ml) is defined by
   file.cmo : dependent1.cm[iox] ... dependentn.cm[iox]
 *)
@@ -22,11 +26,13 @@ let rec parse_deps = parser
 (* return associated list with dependency *)
 and parse_line = parser
   (* file.cm* : dependent1.cm* dependent12.cm* ... *)
-  | [< f,suffix = parse_name; 'Kwd ":"; fs = parse_names >]
-      -> if suffix = "cmo" then
-        [ f,d | d <- fs; f <> d]
-      else
-        []
+  | [< fs = parse_source; 'Kwd ":"; depends = parse_names >]
+      -> let f = List.hd fs in
+         f, depends
+and parse_source = parser
+  | [< f,_ = parse_name; fs = parse_source>]
+      -> uniq (f :: fs)
+  | [< >] -> []
 and parse_names = parser
   | [< f,_ = parse_name; fs = parse_names >]
       -> f :: fs
@@ -41,6 +47,4 @@ let pp p str =
   let t = Stream.of_string str in
   p (lexer t)
 
-let from_line  str = pp parse_line str
-
-let from_lines str = pp parse_deps str
+let from_line  str  = pp parse_line str
